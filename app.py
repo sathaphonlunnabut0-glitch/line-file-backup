@@ -58,7 +58,7 @@ def webhook():
             continue
 
         # ✅ อ่าน Content-Type จริงจาก LINE
-        content_type = response.headers.get("Content-Type")
+        content_type = response.headers.get("Content-Type", "application/octet-stream")
 
         # เดานามสกุลจาก content-type
         ext = mimetypes.guess_extension(content_type)
@@ -66,7 +66,9 @@ def webhook():
         if not ext:
             ext = ".bin"
 
-        filename = f"{uuid.uuid4()}{ext}"
+        # 🔥 สร้างโฟลเดอร์ตามประเภทไฟล์
+        folder = message_type  # image / video / audio / file
+        filename = f"{folder}/{uuid.uuid4()}{ext}"
 
         try:
             result = supabase.storage.from_(BUCKET_NAME).upload(
@@ -88,5 +90,6 @@ def webhook():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+
 
 

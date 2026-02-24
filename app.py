@@ -2,6 +2,7 @@ from flask import Flask, request
 import requests
 import os
 import uuid
+import mimetypes
 from supabase import create_client
 
 app = Flask(__name__)
@@ -45,7 +46,6 @@ def webhook():
         if message_type not in ["image", "video", "audio", "file"]:
             continue
 
-        # ===== Download file from LINE =====
         headers = {
             "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"
         }
@@ -57,29 +57,27 @@ def webhook():
             print("❌ Download failed:", response.status_code)
             continue
 
-        # ===== Determine file extension =====
-        if message_type == "image":
-            ext = "jpg"
-        elif message_type == "video":
-            ext = "mp4"
-        elif message_type == "audio":
-            ext = "m4a"
-        elif message_type == "file":
-            ext = "bin"
-        else:
-            ext = "dat"
+        # ✅ อ่าน Content-Type จริงจาก LINE
+        content_type = response.headers.get("Content-Type")
 
-        filename = f"{uuid.uuid4()}.{ext}"
+        # เดานามสกุลจาก content-type
+        ext = mimetypes.guess_extension(content_type)
 
-        # ===== Upload to Supabase =====
+        if not ext:
+            ext = ".bin"
+
+        filename = f"{uuid.uuid4()}{ext}"
+
         try:
             result = supabase.storage.from_(BUCKET_NAME).upload(
                 filename,
                 response.content,
-                {"content-type": "application/octet-stream"}
+                {
+                    "content-type": content_type
+                }
             )
 
-            print("✅ Uploaded to Supabase:", filename)
+            print("✅ Uploaded:", filename, "| type:", content_type)
 
         except Exception as e:
             print("❌ Upload error:", str(e))
@@ -90,4 +88,5 @@ def webhook():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+
 

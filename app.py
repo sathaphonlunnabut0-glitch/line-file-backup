@@ -7,10 +7,12 @@ from supabase import create_client
 
 app = Flask(__name__)
 
-# ===== Environment Variables =====
-CHANNEL_ACCESS_TOKEN = os.environ.get("CHANNEL_ACCESS_TOKEN")
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+# ==============================
+# Environment Variables
+# ==============================
+CHANNEL_ACCESS_TOKEN = os.getenv("CHANNEL_ACCESS_TOKEN")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 if not CHANNEL_ACCESS_TOKEN:
     raise Exception("Missing CHANNEL_ACCESS_TOKEN")
@@ -22,15 +24,21 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 BUCKET_NAME = "line-files"
 
+# ==============================
+# Routes
+# ==============================
 
 @app.route("/")
 def home():
-    return "LINE → Supabase Backup Running"
+    return "LINE → Supabase Backup Running", 200
 
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    body = request.json
+    try:
+        body = request.get_json(force=True, silent=True)
+    except Exception:
+        return "Invalid JSON", 400
 
     if not body or "events" not in body:
         return "OK", 200
@@ -43,43 +51,56 @@ def webhook():
         message_id = message.get("id")
         message_type = message.get("type")
 
+        if not message_id:
+            continue
+
         if message_type not in ["image", "video", "audio", "file"]:
             continue
+
+        download_url = f"https://api-data.line.me/v2/bot/message/{message_id}/content"
 
         headers = {
             "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"
         }
 
-        url = f"https://api-data.line.me/v2/bot/message/{message_id}/content"
-        response = requests.get(url, headers=headers)
+        try:
+            response = requests.get(
+                download_url,
+                headers=headers,
+                stream=True,
+                timeout=15
+            )
+        except requests.RequestException as e:
+            print("❌ LINE download error:", str(e))
+            continue
 
         if response.status_code != 200:
             print("❌ Download failed:", response.status_code)
             continue
 
-        # ✅ อ่าน Content-Type จริงจาก LINE
-        content_type = response.headers.get("Content-Type", "application/octet-stream")
+        content_type = response.headers.get(
+            "Content-Type",
+            "application/octet-stream"
+        )
 
-        # เดานามสกุลจาก content-type
         ext = mimetypes.guess_extension(content_type)
-
         if not ext:
             ext = ".bin"
 
-        # 🔥 สร้างโฟลเดอร์ตามประเภทไฟล์
-        folder = message_type  # image / video / audio / file
+        folder = message_type
         filename = f"{folder}/{uuid.uuid4()}{ext}"
 
         try:
-            result = supabase.storage.from_(BUCKET_NAME).upload(
-                filename,
-                response.content,
-                {
-                    "content-type": content_type
+            supabase.storage.from_(BUCKET_NAME).upload(
+                path=filename,
+                file=response.content,
+                file_options={
+                    "content-type": content_type,
+                    "upsert": False  # ป้องกันเขียนทับ
                 }
             )
 
-            print("✅ Uploaded:", filename, "| type:", content_type)
+            print(f"✅ Uploaded: {filename} | {content_type}")
 
         except Exception as e:
             print("❌ Upload error:", str(e))
@@ -87,9 +108,9 @@ def webhook():
     return "OK", 200
 
 
+# ==============================
+# Main
+# ==============================
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
+    port = int(os.getenv("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
-
-
-

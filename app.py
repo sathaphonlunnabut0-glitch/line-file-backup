@@ -2,7 +2,6 @@ from flask import Flask, request
 import requests
 import os
 import uuid
-import mimetypes
 from supabase import create_client
 
 app = Flask(__name__)
@@ -35,10 +34,7 @@ def home():
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    try:
-        body = request.get_json(force=True, silent=True)
-    except Exception:
-        return "Invalid JSON", 400
+    body = request.get_json(silent=True)
 
     if not body or "events" not in body:
         return "OK", 200
@@ -68,24 +64,38 @@ def webhook():
                 download_url,
                 headers=headers,
                 stream=True,
-                timeout=15
+                timeout=20
             )
-        except requests.RequestException as e:
-            print("❌ LINE download error:", str(e))
+        except Exception as e:
+            print("❌ LINE download error:", e)
             continue
 
         if response.status_code != 200:
             print("❌ Download failed:", response.status_code)
             continue
 
+        # 🔥 เอาเฉพาะ mime type จริง (ตัด ; charset=binary ออก)
         content_type = response.headers.get(
             "Content-Type",
             "application/octet-stream"
-        )
+        ).split(";")[0]
 
-        ext = mimetypes.guess_extension(content_type)
-        if not ext:
-            ext = ".bin"
+        print("📦 Content-Type:", content_type)
+
+        # 🔥 map นามสกุลเองแบบชัวร์
+        ext_map = {
+            "image/jpeg": ".jpg",
+            "image/png": ".png",
+            "image/webp": ".webp",
+            "image/gif": ".gif",
+            "video/mp4": ".mp4",
+            "audio/mpeg": ".mp3",
+            "audio/mp4": ".m4a",
+            "audio/x-m4a": ".m4a",
+            "application/pdf": ".pdf"
+        }
+
+        ext = ext_map.get(content_type, ".bin")
 
         folder = message_type
         filename = f"{folder}/{uuid.uuid4()}{ext}"
@@ -96,14 +106,14 @@ def webhook():
                 file=response.content,
                 file_options={
                     "content-type": content_type,
-                    "upsert": False  # ป้องกันเขียนทับ
+                    "upsert": False
                 }
             )
 
-            print(f"✅ Uploaded: {filename} | {content_type}")
+            print("✅ Uploaded:", filename)
 
         except Exception as e:
-            print("❌ Upload error:", str(e))
+            print("❌ Upload error:", e)
 
     return "OK", 200
 

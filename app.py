@@ -93,12 +93,13 @@ def webhook():
         # ดึงชื่อไฟล์จาก header ถ้ามี
         # ==============================
         original_filename = None
-        content_disposition = response.headers.get("Content-Disposition")
 
-        if content_disposition:
-            match = re.search(r'filename="(.+?)"', content_disposition)
-            if match:
-                original_filename = sanitize_filename(match.group(1))
+        # 🔥 ดึงจาก event payload ก่อน
+        if message_type == "file":
+            original_filename = message.get("fileName")
+        
+        if original_filename:
+            original_filename = sanitize_filename(original_filename)
 
         # ==============================
         # map นามสกุล
@@ -152,3 +153,4 @@ def webhook():
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+

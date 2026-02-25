@@ -3,6 +3,7 @@ import requests
 import os
 import uuid
 import re
+import unicodedata
 from supabase import create_client
 
 app = Flask(__name__)
@@ -28,7 +29,16 @@ BUCKET_NAME = "line-files"
 # Helper: sanitize filename
 # ==============================
 def sanitize_filename(name):
-    name = re.sub(r'[^a-zA-Z0-9ก-๙._-]', '_', name)
+    # แปลง unicode ให้ปลอดภัย
+    name = unicodedata.normalize("NFKD", name)
+
+    # แทนที่อักขระที่ไม่ปลอดภัย
+    name = re.sub(r'[^\w.\-]', '_', name)
+
+    # ป้องกันชื่อยาวเกิน
+    if len(name) > 120:
+        name = name[:120]
+
     return name
 
 
@@ -153,4 +163,5 @@ def webhook():
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+
 

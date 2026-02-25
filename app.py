@@ -2,6 +2,7 @@ from flask import Flask, request
 import requests
 import os
 import uuid
+import re
 from supabase import create_client
 
 app = Flask(__name__)
@@ -24,9 +25,16 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 BUCKET_NAME = "line-files"
 
 # ==============================
+# Helper: sanitize filename
+# ==============================
+def sanitize_filename(name):
+    name = re.sub(r'[^a-zA-Z0-9ก-๙._-]', '_', name)
+    return name
+
+
+# ==============================
 # Routes
 # ==============================
-
 @app.route("/")
 def home():
     return "LINE → Supabase Backup Running", 200
@@ -74,7 +82,6 @@ def webhook():
             print("❌ Download failed:", response.status_code)
             continue
 
-        # 🔥 เอาเฉพาะ mime type จริง (ตัด ; charset=binary ออก)
         content_type = response.headers.get(
             "Content-Type",
             "application/octet-stream"
@@ -82,7 +89,20 @@ def webhook():
 
         print("📦 Content-Type:", content_type)
 
-        # 🔥 map นามสกุลเองแบบชัวร์
+        # ==============================
+        # ดึงชื่อไฟล์จาก header ถ้ามี
+        # ==============================
+        original_filename = None
+        content_disposition = response.headers.get("Content-Disposition")
+
+        if content_disposition:
+            match = re.search(r'filename="(.+?)"', content_disposition)
+            if match:
+                original_filename = sanitize_filename(match.group(1))
+
+        # ==============================
+        # map นามสกุล
+        # ==============================
         ext_map = {
             "image/jpeg": ".jpg",
             "image/png": ".png",
@@ -98,7 +118,15 @@ def webhook():
         ext = ext_map.get(content_type, ".bin")
 
         folder = message_type
-        filename = f"{folder}/{uuid.uuid4()}{ext}"
+
+        # ==============================
+        # ถ้ามีชื่อไฟล์จาก LINE ใช้ชื่อจริง
+        # ถ้าไม่มี ใช้ UUID
+        # ==============================
+        if original_filename:
+            filename = f"{folder}/{original_filename}"
+        else:
+            filename = f"{folder}/{uuid.uuid4()}{ext}"
 
         try:
             supabase.storage.from_(BUCKET_NAME).upload(

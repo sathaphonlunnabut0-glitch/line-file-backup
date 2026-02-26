@@ -2,8 +2,6 @@ from flask import Flask, request
 import requests
 import os
 import uuid
-import re
-import unicodedata
 from supabase import create_client
 
 app = Flask(__name__)
@@ -24,17 +22,6 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 BUCKET_NAME = "line-files"
-
-# ==============================
-# Helper: sanitize filename
-# ==============================
-def sanitize_filename(name):
-    name = unicodedata.normalize("NFKD", name)
-    name = re.sub(r"[^\w.\-]", "_", name)
-    name = name.strip("._")
-    if len(name) > 120:
-        name = name[:120]
-    return name
 
 # ==============================
 # Routes
@@ -90,18 +77,7 @@ def webhook():
             "application/octet-stream"
         ).split(";")[0]
 
-        print("📦 Content-Type:", content_type)
-
-        # ==============================
-        # ดึงชื่อไฟล์จาก LINE event (เฉพาะ type=file)
-        # ==============================
-        original_filename = None
-        if message_type == "file":
-            original_filename = message.get("fileName")
-
-        # ==============================
         # map นามสกุล
-        # ==============================
         ext_map = {
             "image/jpeg": ".jpg",
             "image/png": ".png",
@@ -118,24 +94,9 @@ def webhook():
 
         folder = message_type
 
-        # ==============================
-        # ตั้งชื่อไฟล์แบบปลอดภัย 100%
-        # ==============================
-        if original_filename:
-            safe_name = sanitize_filename(original_filename)
-            name_part, extension = os.path.splitext(safe_name)
+        # 🔥 ใช้ UUID อย่างเดียว ปลอดภัย 100%
+        filename = f"{folder}/{uuid.uuid4().hex}{ext}"
 
-            # ถ้าไม่มี extension ให้ใช้จาก content-type
-            if not extension:
-                extension = ext
-
-            filename = f"{folder}/{name_part}_{uuid.uuid4().hex}{extension}"
-        else:
-            filename = f"{folder}/{uuid.uuid4().hex}{ext}"
-
-        # ==============================
-        # Upload
-        # ==============================
         try:
             supabase.storage.from_(BUCKET_NAME).upload(
                 path=filename,

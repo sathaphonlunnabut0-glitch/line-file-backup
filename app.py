@@ -6,9 +6,6 @@ from supabase import create_client
 
 app = Flask(__name__)
 
-# ==============================
-# Environment Variables
-# ==============================
 CHANNEL_ACCESS_TOKEN = os.getenv("CHANNEL_ACCESS_TOKEN")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -23,12 +20,9 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 BUCKET_NAME = "line-files"
 
-# ==============================
-# Routes
-# ==============================
 @app.route("/")
 def home():
-    return "LINE → Supabase Backup Running", 200
+    return "LINE → Supabase Production Backup Running", 200
 
 
 @app.route("/webhook", methods=["POST"])
@@ -94,12 +88,22 @@ def webhook():
 
         folder = message_type
 
-        # 🔥 ใช้ UUID อย่างเดียว ปลอดภัย 100%
-        filename = f"{folder}/{uuid.uuid4().hex}{ext}"
+        # 🔥 ใช้ UUID เป็นชื่อไฟล์เสมอ
+        file_uuid = uuid.uuid4().hex
+        storage_path = f"{folder}/{file_uuid}{ext}"
+
+        # 🔥 ดึงชื่อไฟล์จริงจาก LINE (ถ้าเป็น file)
+        original_name = None
+        if message_type == "file":
+            original_name = message.get("fileName")
+
+        if not original_name:
+            original_name = f"{file_uuid}{ext}"
 
         try:
+            # 1️⃣ Upload file
             supabase.storage.from_(BUCKET_NAME).upload(
-                path=filename,
+                path=storage_path,
                 file=response.content,
                 file_options={
                     "content-type": content_type,
@@ -107,7 +111,14 @@ def webhook():
                 }
             )
 
-            print("✅ Uploaded:", filename)
+            # 2️⃣ Save metadata ลง database
+            supabase.table("line_files").insert({
+                "original_name": original_name,
+                "storage_path": storage_path,
+                "file_type": message_type
+            }).execute()
+
+            print("✅ Uploaded & Saved:", original_name)
 
         except Exception as e:
             print("❌ Upload error:", e)
@@ -115,9 +126,6 @@ def webhook():
     return "OK", 200
 
 
-# ==============================
-# Main
-# ==============================
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 10000))
     app.run(host="0.0.0.0", port=port)

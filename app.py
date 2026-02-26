@@ -29,18 +29,12 @@ BUCKET_NAME = "line-files"
 # Helper: sanitize filename
 # ==============================
 def sanitize_filename(name):
-    # แปลง unicode ให้ปลอดภัย
     name = unicodedata.normalize("NFKD", name)
-
-    # แทนที่อักขระที่ไม่ปลอดภัย
-    name = re.sub(r'[^\w.\-]', '_', name)
-
-    # ป้องกันชื่อยาวเกิน
+    name = re.sub(r"[^\w.\-]", "_", name)
+    name = name.strip("._")
     if len(name) > 120:
         name = name[:120]
-
     return name
-
 
 # ==============================
 # Routes
@@ -81,7 +75,6 @@ def webhook():
             response = requests.get(
                 download_url,
                 headers=headers,
-                stream=True,
                 timeout=20
             )
         except Exception as e:
@@ -100,16 +93,11 @@ def webhook():
         print("📦 Content-Type:", content_type)
 
         # ==============================
-        # ดึงชื่อไฟล์จาก header ถ้ามี
+        # ดึงชื่อไฟล์จาก LINE event (เฉพาะ type=file)
         # ==============================
         original_filename = None
-
-        # 🔥 ดึงจาก event payload ก่อน
         if message_type == "file":
             original_filename = message.get("fileName")
-        
-        if original_filename:
-            original_filename = sanitize_filename(original_filename)
 
         # ==============================
         # map นามสกุล
@@ -131,14 +119,23 @@ def webhook():
         folder = message_type
 
         # ==============================
-        # ถ้ามีชื่อไฟล์จาก LINE ใช้ชื่อจริง
-        # ถ้าไม่มี ใช้ UUID
+        # ตั้งชื่อไฟล์แบบปลอดภัย 100%
         # ==============================
         if original_filename:
-            filename = f"{folder}/{original_filename}"
-        else:
-            filename = f"{folder}/{uuid.uuid4()}{ext}"
+            safe_name = sanitize_filename(original_filename)
+            name_part, extension = os.path.splitext(safe_name)
 
+            # ถ้าไม่มี extension ให้ใช้จาก content-type
+            if not extension:
+                extension = ext
+
+            filename = f"{folder}/{name_part}_{uuid.uuid4().hex}{extension}"
+        else:
+            filename = f"{folder}/{uuid.uuid4().hex}{ext}"
+
+        # ==============================
+        # Upload
+        # ==============================
         try:
             supabase.storage.from_(BUCKET_NAME).upload(
                 path=filename,
@@ -163,5 +160,3 @@ def webhook():
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
-
-
